@@ -4,7 +4,6 @@
 #define TRINITYCORE_CHAT_H
 
 #include "SharedDefines.h"
-#include "ChatCommand.h"
 
 class ChatHandler;
 class WorldSession;
@@ -14,6 +13,22 @@ class Unit;
 struct GameTele;
 struct GM_Ticket;
 class GameObject;
+
+class TC_GAME_API ChatCommand
+{
+    typedef bool(*pHandler)(ChatHandler*, char const*);
+
+public:
+    ChatCommand(char const* name, uint32 permission, bool allowConsole, pHandler handler, std::string help, std::vector<ChatCommand> childCommands = std::vector<ChatCommand>());
+
+    char const* Name;
+    uint32 Permission;                   // function pointer required correct align (use uint32)
+    bool AllowConsole;
+    pHandler Handler;
+    std::string Help;
+    std::vector<ChatCommand> ChildCommands;
+};
+
 
 class TC_GAME_API ChatHandler
 {

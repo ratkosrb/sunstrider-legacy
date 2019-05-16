@@ -4,7 +4,6 @@
 #include "MapManager.h"
 #include "TicketMgr.h"
 
-using namespace Trinity::ChatCommands;
 class go_commandscript : public CommandScript
 {
 public:
@@ -12,16 +11,10 @@ public:
 
     std::vector<ChatCommand> GetCommands() const override
     {
-        static std::vector<ChatCommand> goCreatureCommandTable =
-        {
-            { "id",             SEC_GAMEMASTER2,     false, &HandleGoCreatureCIdCommand,       "" },
-            { "",               SEC_GAMEMASTER2,     false, &HandleGoCreatureSpawnIdCommand,   "" }
-        };
-
         static std::vector<ChatCommand> goCommandTable =
         {
             { "grid",           SEC_GAMEMASTER1,     false, &HandleGoGridCommand,              "" },
-            { "creature",       SEC_GAMEMASTER2,     false, nullptr,                           "", goCreatureCommandTable },
+            { "creature",       SEC_GAMEMASTER2,     false, &HandleGoCreatureCommand,          "" },
             { "object",         SEC_GAMEMASTER2,     false, &HandleGoObjectCommand,            "" },
             { "ticket",         SEC_GAMEMASTER1,     false, &HandleGoTicketCommand,            "" },
             { "trigger",        SEC_GAMEMASTER2,     false, &HandleGoTriggerCommand,           "" },
@@ -40,8 +33,19 @@ public:
         return commandTable;
     }
 
-    static bool HandleGoTicketCommand(ChatHandler* handler, uint32 ticketId)
+    static bool HandleGoTicketCommand(ChatHandler* handler, char const* args)
     {
+        if (!*args)
+            return false;
+
+        char* id = strtok((char*)args, " ");
+        if (!id)
+            return false;
+
+        uint32 ticketId = atoul(id);
+        if (!ticketId)
+            return false;
+
         GmTicket* ticket = sTicketMgr->GetTicket(ticketId);
         if (!ticket)
         {
@@ -476,44 +480,96 @@ public:
         return true;
     }
 
-    static bool HandleGoCreatureSpawnIdCommand(ChatHandler* handler, Variant<Hyperlink<creature>, ObjectGuid::LowType> spawnId)
+    /** \brief Teleport the GM to the specified creature
+    *
+    * .gocreature <GUID>      --> TP using creature.guid
+    * .gocreature azuregos    --> TP player to the mob with this name
+    *                             Warning: If there is more than one mob with this name
+    *                                      you will be teleported to the first one that is found.
+    * .gocreature id 6109     --> TP player to the mob, that has this creature_template.entry
+    *                             Warning: If there is more than one mob with this "id"
+    *                                      you will be teleported to the first one that is found.
+    */
+    //teleport to creature
+    static bool HandleGoCreatureCommand(ChatHandler* handler, char const* args)
     {
-        CreatureData const* spawnpoint = sObjectMgr->GetCreatureData(spawnId);
-        if (!spawnpoint)
-        {
-            handler->SendSysMessage(LANG_COMMAND_GOCREATNOTFOUND);
-            handler->SetSentErrorMessage(true);
+        if (!*args)
             return false;
-        }
 
-        return DoTeleport(handler, spawnpoint->spawnPoint);
-    }
+        Player* player = handler->GetSession()->GetPlayer();
 
-    static bool HandleGoCreatureCIdCommand(ChatHandler* handler, Variant<Hyperlink<creature_entry>, uint32> cId)
-    {
-        CreatureData const* spawnpoint = nullptr;
-        for (auto const& pair : sObjectMgr->GetAllCreatureData())
+        // "id" or number or [name] Shift-click form |color|Hcreature_entry:creature_id|h[name]|h|r
+        char* param1 = handler->extractKeyFromLink((char*)args, "Hcreature");
+        if (!param1)
+            return false;
+
+        std::ostringstream whereClause;
+
+        // User wants to teleport to the NPC's template entry
+        if (strcmp(param1, "id") == 0)
         {
-            if (!std::any_of(pair.second.ids.begin(), pair.second.ids.end(), [&](auto e) { return e.id == *cId; }))
-                continue;
+            // Get the "creature_template.entry"
+            // number or [name] Shift-click form |color|Hcreature_entry:creature_id|h[name]|h|r
+            char* tail = strtok(nullptr, "");
+            if (!tail)
+                return false;
+            char* id = handler->extractKeyFromLink(tail, "Hcreature_entry");
+            if (!id)
+                return false;
 
-            if (!spawnpoint)
-                spawnpoint = &pair.second;
-            else
+            uint32 entry = atoul(id);
+            if (!entry)
+                return false;
+
+            whereClause << "WHERE id = '" << entry << '\'';
+        }
+        else
+        {
+            ObjectGuid::LowType guidLow = atoul(param1);
+
+            // Number is invalid - maybe the user specified the mob's name
+            if (!guidLow)
             {
-                handler->SendSysMessage(LANG_COMMAND_GOCREATMULTIPLE);
-                break;
+                std::string name = param1;
+                WorldDatabase.EscapeString(name);
+                whereClause << ", creature_template WHERE creature.id = creature_template.entry AND creature_template.name LIKE '" << name << '\'';
             }
+            else
+                whereClause << "WHERE guid = '" << guidLow << '\'';
         }
 
-        if (!spawnpoint)
+        QueryResult result = WorldDatabase.PQuery("SELECT position_x, position_y, position_z, orientation, map, guid, id FROM creature %s", whereClause.str().c_str());
+        if (!result)
         {
             handler->SendSysMessage(LANG_COMMAND_GOCREATNOTFOUND);
             handler->SetSentErrorMessage(true);
             return false;
         }
+        if (result->GetRowCount() > 1)
+            handler->SendSysMessage(LANG_COMMAND_GOCREATMULTIPLE);
 
-        return DoTeleport(handler, spawnpoint->spawnPoint);
+        Field* fields = result->Fetch();
+        float x = fields[0].GetFloat();
+        float y = fields[1].GetFloat();
+        float z = fields[2].GetFloat();
+        float o = fields[3].GetFloat();
+        uint32 mapId = fields[4].GetUInt16();
+
+        if (!MapManager::IsValidMapCoord(mapId, x, y, z, o) || sObjectMgr->IsTransportMap(mapId))
+        {
+            handler->PSendSysMessage(LANG_INVALID_TARGET_COORD, x, y, mapId);
+            handler->SetSentErrorMessage(true);
+            return false;
+        }
+
+        // stop flight if need
+        if (player->IsInFlight())
+            player->FinishTaxiFlight();
+        else
+            player->SaveRecallPosition(); // save only in non-flight case
+
+        player->TeleportTo(mapId, x, y, z, o);
+        return true;
     }
 
     static bool HandleGoATCommand(ChatHandler* handler, char const* args)

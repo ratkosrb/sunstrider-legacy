@@ -21,6 +21,13 @@
 #include "ScriptMgr.h"
 #include <boost/algorithm/string/replace.hpp>
 
+
+
+ChatCommand::ChatCommand(char const* name, uint32 permission, bool allowConsole, pHandler handler, std::string help, std::vector<ChatCommand> childCommands /*= std::vector<ChatCommand>()*/)
+    : Name(ASSERT_NOTNULL(name)), Permission(permission), AllowConsole(allowConsole), Handler(handler), Help(std::move(help)), ChildCommands(std::move(childCommands))
+{
+}
+
 // Lazy loading of the command table cache from commands and the
 // ScriptMgr should be thread safe since the player commands,
 // cli commands and ScriptMgr updates are all dispatched one after
@@ -66,19 +73,16 @@ bool ChatHandler::SetDataForCommandInTable(std::vector<ChatCommand>& table, char
     //make text point on next word
     while (*text == ' ') ++text;
 
-    for (auto & i : table)
+    for (uint32 i = 0; i < table.size(); i++)
     {
-        if (!i.Name)
-            return false;
-
         // for data fill use full explicit command names
-        if (i.Name != cmd)
+        if (table[i].Name != cmd)
             continue;
 
         // select subcommand from child commands list (including "")
-        if (!i.ChildCommands.empty())
+        if (!table[i].ChildCommands.empty())
         {
-            if (SetDataForCommandInTable(i.ChildCommands, text, securityLevel, help, fullcommand))
+            if (SetDataForCommandInTable(table[i].ChildCommands, text, securityLevel, help, fullcommand))
                 return true;
             else if (*text)
                 return false;
@@ -88,15 +92,15 @@ bool ChatHandler::SetDataForCommandInTable(std::vector<ChatCommand>& table, char
         // expected subcommand by full name DB content
         else if (*text)
         {
-            TC_LOG_ERROR("sql.sql", "Table `command` have unexpected subcommand '%s' in command '%s', skip.", text, fullcommand.c_str());
+            TC_LOG_ERROR("sql.sql", "Table `command` contains an unexpected subcommand '%s' in command '%s', skipped.", text, fullcommand.c_str());
             return false;
         }
 
-        if (i.SecurityLevel != securityLevel)
-            TC_LOG_DEBUG("misc", "Table `command` overwrite for command '%s' default permission (%u) by %u", fullcommand.c_str(), i.SecurityLevel, securityLevel);
+        if (table[i].Permission != securityLevel)
+            TC_LOG_INFO("misc", "Table `command` overwrite for command '%s' default permission (%u) by %u", fullcommand.c_str(), table[i].Permission, securityLevel);
 
-        i.SecurityLevel = securityLevel;
-        i.Help = help;
+        table[i].Permission = securityLevel;
+        table[i].Help = help;
         return true;
     }
 
@@ -224,7 +228,7 @@ std::string ChatHandler::GetTrinityStringVA(int32 entry, ...) const
 
 bool ChatHandler::isAvailable(ChatCommand const& cmd) const
 {
-    return m_session->GetSecurity() >= cmd.SecurityLevel;
+    return m_session->GetSecurity() >= cmd.Permission;
 }
 
 bool ChatHandler::hasStringAbbr(const char* name, const char* part) const
@@ -385,12 +389,12 @@ bool ChatHandler::ExecuteCommandInTable(std::vector<ChatCommand> const& table, c
         }
 
         // must be available and have handler
-        if(!table[i].HasHandler() || !isAvailable(table[i]))
+        if (!table[i].Handler || !isAvailable(table[i]))
             continue;
 
         SetSentErrorMessage(false);
         // table[i].Name == "" is special case: send original command to handler
-        if (table[i](this, table[i].Name[0] != '\0' ? text : oldtext))
+        if ((table[i].Handler)(this, table[i].Name[0] != '\0' ? text : oldtext))
         {
             //log command
             Unit const* target = m_session ? (m_session->GetPlayer() ? m_session->GetPlayer()->GetSelectedUnit() : nullptr) : nullptr;

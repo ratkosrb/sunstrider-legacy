@@ -2077,7 +2077,7 @@ enum QuestSort
 #endif
 };
 
-constexpr uint8 ClassByQuestSort(int32 QuestSort)
+inline uint8 ClassByQuestSort(int32 QuestSort)
 {
     switch(QuestSort)
     {
@@ -2260,7 +2260,7 @@ enum SkillType
     MAX_SKILL_TYPE
 };
 
-constexpr SkillType SkillByLockType(LockType locktype)
+inline SkillType SkillByLockType(LockType locktype)
 {
     switch (locktype)
     {
@@ -2276,7 +2276,7 @@ constexpr SkillType SkillByLockType(LockType locktype)
     return SKILL_NONE;
 }
 
-constexpr uint32 SkillByQuestSort(int32 QuestSort)
+inline uint32 SkillByQuestSort(int32 QuestSort)
 {
     switch(QuestSort)
     {

@@ -16,7 +16,6 @@
  */
 
 #include "Hyperlinks.h"
-#include "advstd.h"
 #include "Common.h"
 #include "DBCStores.h"
 #include "Errors.h"
@@ -312,7 +311,7 @@ struct LinkValidator<LinkTags::trade>
     if (info.tag.second == strlen(taginfo::tag()) &&                                            \
         !strncmp(info.tag.first, taginfo::tag(), strlen(taginfo::tag())))                       \
     {                                                                                           \
-        advstd::remove_cvref_t<typename taginfo::value_type> t;                                 \
+        taginfo::value_type t{};                                                                \
         if (!taginfo::StoreTo(t, info.data.first, info.data.second))                            \
             return false;                                                                       \
         if (!LinkValidator<taginfo>::IsColorValid(t, info.color))                               \
@@ -333,7 +332,6 @@ static bool ValidateLinkInfo(HyperlinkInfo const& info)
     TryValidateAs(trade);
 #endif
 
-    TryValidateAs(talent);
     TryValidateAs(area);
     TryValidateAs(areatrigger);
     TryValidateAs(creature);
@@ -341,16 +339,13 @@ static bool ValidateLinkInfo(HyperlinkInfo const& info)
     TryValidateAs(gameevent);
     TryValidateAs(gameobject);
     TryValidateAs(gameobject_entry);
-    TryValidateAs(item);
     TryValidateAs(itemset);
-    TryValidateAs(player);
-    TryValidateAs(quest);
     TryValidateAs(skill);
     TryValidateAs(spell);
     TryValidateAs(taxinode);
     TryValidateAs(tele);
     TryValidateAs(title);
-    return false;
+    return true;
 }
 
 // Validates all hyperlinks and control sequences contained in str

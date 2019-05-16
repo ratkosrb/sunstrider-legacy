@@ -157,63 +157,80 @@ public:
     }
 
     //Teleport group to given game_tele.entry
-    static bool HandleTeleGroupCommand(ChatHandler* handler, GameTele const* tele)
+    static bool HandleTeleGroupCommand(ChatHandler* handler, char const* args)
     {
-        if (!tele)
-        {
-            handler->SendSysMessage(LANG_COMMAND_TELE_NOTFOUND);
-            handler->SetSentErrorMessage(true);
-            return false;	           
-        }
+        if (!*args)
+            return false;
 
-        Player *player = handler->GetSelectedPlayerOrSelf();
-        if (!player)
+        Player* target = handler->GetSelectedPlayer();
+        if (!target)
         {
             handler->SendSysMessage(LANG_NO_CHAR_SELECTED);
             handler->SetSentErrorMessage(true);
             return false;
         }
 
-        MapEntry const * me = sMapStore.LookupEntry(tele->mapId);
-        if (!me || me->IsBattlegroundOrArena())
+        // check online security
+        if (handler->HasLowerSecurity(target, ObjectGuid::Empty))
+            return false;
+
+        // id, or string, or [name] Shift-click form |color|Htele:id|h[name]|h|r
+        GameTele const* tele = handler->extractGameTeleFromLink((char*)args);
+        if (!tele)
+        {
+            handler->SendSysMessage(LANG_COMMAND_TELE_NOTFOUND);
+            handler->SetSentErrorMessage(true);
+            return false;
+        }
+
+        MapEntry const* map = sMapStore.LookupEntry(tele->mapId);
+        if (!map || map->IsBattlegroundOrArena())
         {
             handler->SendSysMessage(LANG_CANNOT_TELE_TO_BG);
             handler->SetSentErrorMessage(true);
             return false;
         }
-        Group *grp = player->GetGroup();
+
+        std::string nameLink = handler->GetNameLink(target);
+
+        Group* grp = target->GetGroup();
         if (!grp)
         {
-            handler->PSendSysMessage(LANG_NOT_IN_GROUP, player->GetName().c_str());
+            handler->PSendSysMessage(LANG_NOT_IN_GROUP, nameLink.c_str());
             handler->SetSentErrorMessage(true);
             return false;
         }
 
-        for (GroupReference *itr = grp->GetFirstMember(); itr != nullptr; itr = itr->next())
+        for (GroupReference* itr = grp->GetFirstMember(); itr != nullptr; itr = itr->next())
         {
-            Player *pl = itr->GetSource();
+            Player* player = itr->GetSource();
 
-            if (!pl || !pl->GetSession())
+            if (!player || !player->GetSession())
                 continue;
 
-            if (pl->IsBeingTeleported())
+            // check online security
+            if (handler->HasLowerSecurity(player, ObjectGuid::Empty))
+                return false;
+
+            std::string plNameLink = handler->GetNameLink(player);
+
+            if (player->IsBeingTeleported())
             {
-                handler->PSendSysMessage(LANG_IS_TELEPORTED, pl->GetName().c_str());
+                handler->PSendSysMessage(LANG_IS_TELEPORTED, plNameLink.c_str());
                 continue;
             }
 
-            handler->PSendSysMessage(LANG_TELEPORTING_TO, pl->GetName().c_str(), "", tele->name.c_str());
-            if (handler->needReportToTarget(pl))
-                ChatHandler(pl).PSendSysMessage(LANG_TELEPORTED_TO_BY, handler->GetName().c_str());
+            handler->PSendSysMessage(LANG_TELEPORTING_TO, plNameLink.c_str(), "", tele->name.c_str());
+            if (handler->needReportToTarget(player))
+                ChatHandler(player->GetSession()).PSendSysMessage(LANG_TELEPORTED_TO_BY, nameLink.c_str());
 
             // stop flight if need
-            if (pl->IsInFlight())
-                pl->FinishTaxiFlight();
-            // save only in non-flight case
+            if (player->IsInFlight())
+                player->FinishTaxiFlight();
             else
-                pl->SaveRecallPosition();
+                player->SaveRecallPosition(); // save only in non-flight case
 
-            pl->TeleportTo(tele->mapId, tele->position_x, tele->position_y, tele->position_z, tele->orientation);
+            player->TeleportTo(tele->mapId, tele->position_x, tele->position_y, tele->position_z, tele->orientation);
         }
 
         return true;
@@ -311,8 +328,15 @@ public:
         return true;
     }
 
-    static bool HandleTeleCommand(ChatHandler* handler, GameTele const* tele)
+    static bool HandleTeleCommand(ChatHandler* handler, char const* args)
     {
+        if (!*args)
+            return false;
+
+        Player* player = handler->GetSession()->GetPlayer();
+
+        // id, or string, or [name] Shift-click form |color|Htele:id|h[name]|h|r
+        GameTele const* tele = handler->extractGameTeleFromLink((char*)args);
         if (!tele)
         {
             handler->SendSysMessage(LANG_COMMAND_TELE_NOTFOUND);
@@ -320,16 +344,15 @@ public:
             return false;
         }
 
-        Player* _player = handler->GetSession()->GetPlayer();
-        if (_player->IsBeingTeleported())
+        if (player->IsInCombat() && !player->IsGameMaster())
         {
-            handler->PSendSysMessage(LANG_IS_TELEPORTED, _player->GetName().c_str());
+            handler->SendSysMessage(LANG_YOU_IN_COMBAT);
             handler->SetSentErrorMessage(true);
             return false;
         }
 
-        MapEntry const * map = sMapStore.LookupEntry(tele->mapId);
-        if (!map || (map->IsBattlegroundOrArena() && (_player->GetMapId() != tele->mapId || !_player->IsGameMaster())))
+        MapEntry const* map = sMapStore.LookupEntry(tele->mapId);
+        if (!map || (map->IsBattlegroundOrArena() && (player->GetMapId() != tele->mapId || !player->IsGameMaster())))
         {
             handler->SendSysMessage(LANG_CANNOT_TELE_TO_BG);
             handler->SetSentErrorMessage(true);
@@ -337,15 +360,12 @@ public:
         }
 
         // stop flight if need
-        if (_player->IsInFlight())
-            _player->FinishTaxiFlight();
-        // save only in non-flight case
+        if (player->IsInFlight())
+            player->FinishTaxiFlight();
         else
-            _player->SaveRecallPosition();
+            player->SaveRecallPosition(); // save only in non-flight case
 
-        bool ok = _player->TeleportTo(tele->mapId, tele->position_x, tele->position_y, tele->position_z, tele->orientation);
-        if (!ok)
-            handler->SendSysMessage("Teleportation failed");
+        player->TeleportTo(tele->mapId, tele->position_x, tele->position_y, tele->position_z, tele->orientation);
         return true;
     }
 };
