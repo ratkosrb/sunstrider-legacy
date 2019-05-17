@@ -107,7 +107,7 @@ class TC_GAME_API UnitAI
         virtual bool CanAIAttack(Unit const* /*target*/) const { return true; }
         virtual void AttackStart(Unit *);
         void AttackStartCaster(Unit* victim, float dist);
-        virtual void UpdateAI(const uint32 diff) { }
+        virtual void UpdateAI(uint32 diff) { }
 
         bool IsCombatMovementAllowed() { return m_allowCombatMovement; };
         void SetCombatMovementAllowed(bool allow);
@@ -125,7 +125,7 @@ class TC_GAME_API UnitAI
         virtual void OnCharmed(bool isNew);
 
         // Pass parameters between AI
-        virtual void DoAction(const int32 param) {}
+        virtual void DoAction(int32 param) {}
         virtual uint32 GetData(uint32 /*id = 0*/) const { return 0; }
         virtual void SetData(uint32 /*id*/, uint32 /*value*/, Unit* setter = nullptr) {}
         virtual void SetGUID(ObjectGuid const& /*guid*/, int32 /*id*/ = 0) { }

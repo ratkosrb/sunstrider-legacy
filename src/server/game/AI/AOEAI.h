@@ -11,7 +11,7 @@ struct AOEAI : public CreatureAI
     public:
         explicit AOEAI(Creature *c);
         void AttackStart(Unit *who);
-        void UpdateAI(const uint32 diff);
+        void UpdateAI(uint32 diff);
 
         static int Permissible(const Creature *);
 };

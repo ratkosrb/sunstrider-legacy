@@ -35,7 +35,7 @@ public:
             rangedTargetGUID = ObjectGuid::Empty;
         }
 
-        void UpdateAI(const uint32 diff) override 
+        void UpdateAI(uint32 diff) override 
         {    
             // Melee handling
             if (Unit* victim = me->GetVictim())

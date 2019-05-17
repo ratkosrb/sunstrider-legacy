@@ -3,6 +3,7 @@
 #include "Transport.h"
 #include "MapManager.h"
 #include "TicketMgr.h"
+#include "ObjectMgr.h"
 
 class go_commandscript : public CommandScript
 {
@@ -496,8 +497,6 @@ public:
         if (!*args)
             return false;
 
-        Player* player = handler->GetSession()->GetPlayer();
-
         // "id" or number or [name] Shift-click form |color|Hcreature_entry:creature_id|h[name]|h|r
         char* param1 = handler->extractKeyFromLink((char*)args, "Hcreature");
         if (!param1)
@@ -505,6 +504,8 @@ public:
 
         std::ostringstream whereClause;
 
+        uint32 guid = 0;
+        uint32 entry = 0;
         // User wants to teleport to the NPC's template entry
         if (strcmp(param1, "id") == 0)
         {
@@ -517,59 +518,47 @@ public:
             if (!id)
                 return false;
 
-            uint32 entry = atoul(id);
+            entry = atoul(id);
             if (!entry)
                 return false;
-
-            whereClause << "WHERE id = '" << entry << '\'';
         }
         else
         {
-            ObjectGuid::LowType guidLow = atoul(param1);
-
-            // Number is invalid - maybe the user specified the mob's name
-            if (!guidLow)
-            {
-                std::string name = param1;
-                WorldDatabase.EscapeString(name);
-                whereClause << ", creature_template WHERE creature.id = creature_template.entry AND creature_template.name LIKE '" << name << '\'';
-            }
-            else
-                whereClause << "WHERE guid = '" << guidLow << '\'';
+            guid = atoul(param1);
         }
 
-        QueryResult result = WorldDatabase.PQuery("SELECT position_x, position_y, position_z, orientation, map, guid, id FROM creature %s", whereClause.str().c_str());
-        if (!result)
+        CreatureData const* spawnpoint = nullptr;
+        for (auto const& pair : sObjectMgr->GetAllCreatureData())
+        {
+            if (entry)
+            {
+                if (!std::any_of(pair.second.ids.begin(), pair.second.ids.end(), [&](auto e) { return e.id == entry; }))
+                    continue;
+            }
+            else if (guid)
+            {
+                if (guid != pair.second.spawnId)
+                    continue;
+            }
+            
+
+            if (!spawnpoint)
+                spawnpoint = &pair.second;
+            else
+            {
+                handler->SendSysMessage(LANG_COMMAND_GOCREATMULTIPLE);
+                break;
+            }
+        }
+
+        if (!spawnpoint)
         {
             handler->SendSysMessage(LANG_COMMAND_GOCREATNOTFOUND);
             handler->SetSentErrorMessage(true);
             return false;
         }
-        if (result->GetRowCount() > 1)
-            handler->SendSysMessage(LANG_COMMAND_GOCREATMULTIPLE);
 
-        Field* fields = result->Fetch();
-        float x = fields[0].GetFloat();
-        float y = fields[1].GetFloat();
-        float z = fields[2].GetFloat();
-        float o = fields[3].GetFloat();
-        uint32 mapId = fields[4].GetUInt16();
-
-        if (!MapManager::IsValidMapCoord(mapId, x, y, z, o) || sObjectMgr->IsTransportMap(mapId))
-        {
-            handler->PSendSysMessage(LANG_INVALID_TARGET_COORD, x, y, mapId);
-            handler->SetSentErrorMessage(true);
-            return false;
-        }
-
-        // stop flight if need
-        if (player->IsInFlight())
-            player->FinishTaxiFlight();
-        else
-            player->SaveRecallPosition(); // save only in non-flight case
-
-        player->TeleportTo(mapId, x, y, z, o);
-        return true;
+        return DoTeleport(handler, spawnpoint->spawnPoint.GetWorldLocation());
     }
 
     static bool HandleGoATCommand(ChatHandler* handler, char const* args)
